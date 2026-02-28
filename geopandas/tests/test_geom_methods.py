@@ -2230,11 +2230,19 @@ class TestGeomMethods:
             self.na,
             self.a1,
         ):
-            output = gs.sample_points(size, method=method, rng=rng)
-            assert_index_equal(gs.index, output.index)
+            output1 = gs.sample_points(size, method=method, rng=rng)
+            assert_index_equal(gs.index, output1.index)
             assert (
-                len(output.explode(ignore_index=True)) == len(gs[~gs.is_empty]) * size
+                len(output1.explode(ignore_index=True)) == len(gs[~gs.is_empty]) * size
             )
+
+            if rng is not None:
+                output2 = gs.sample_points(size, method=method, rng=rng)
+                if rng == 1:
+                    assert_geoseries_equal(output1, output2)
+                else:
+                    with pytest.raises(AssertionError, match="2 out of"):
+                        assert_geoseries_equal(output1, output2)
 
         with pytest.raises(
             AttributeError, match=re.escape("pointpats.random module has no")
