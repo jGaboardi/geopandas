@@ -1893,6 +1893,37 @@ class TestMapclassifyPlotting:
         labels = [label.get_text() for label in cbar.get_yticklabels()]
         assert labels == expected_labels
 
+    def test_greedy_scheme(self, nybb):
+        pytest.importorskip("libpysal")
+        ax = nybb.plot(scheme="greedy", legend=True)
+
+        expected_lengths = [2, 1, 1, 1]
+        expected_labels = ["0", "1", "2", "3"]
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert labels == expected_labels
+        lengths = [len(col.get_paths()) for col in ax.collections]
+        assert lengths == expected_lengths
+
+    def test_greedy_scheme_kwds(self, nybb):
+        pytest.importorskip("libpysal")
+        ax = nybb.plot(
+            scheme="greedy", legend=True, classification_kwds={"balance": "area"}
+        )
+
+        expected_lengths = [1, 2, 1, 1]
+        expected_labels = ["0", "1", "2", "3"]
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert labels == expected_labels
+        lengths = [len(col.get_paths()) for col in ax.collections]
+        assert lengths == expected_lengths
+
+    def test_greedy_column_error(self, nybb):
+        with pytest.raises(
+            ValueError,
+            match=r"The `scheme='greedy'` cannot be specified together with `column`.",
+        ):
+            nybb.plot("vals", scheme="greedy")
+
 
 class TestPlotCollections:
     def setup_method(self):
@@ -2237,7 +2268,7 @@ class TestGeoplotAccessor:
 def test_column_values():
     """
     Check that the dataframe plot method returns same values with an
-    input string (column in df), pd.Series, or np.array
+    input string (column in df), pd.Series, np.array, or other 1D list-like
     """
     # Build test data
     t1 = Polygon([(0, 0), (1, 0), (1, 1)])
@@ -2246,6 +2277,11 @@ def test_column_values():
     df = GeoDataFrame({"geometry": polys, "values": [0, 1]})
     numeric_index_polys = GeoSeries([t1, t2], index=[0, 1])
     numeric_index_df = GeoDataFrame({"geometry": numeric_index_polys, "values": [0, 1]})
+    mutliindex_column_df = GeoDataFrame(
+        {"geometry": numeric_index_polys, "values": [0, 1]}
+    )
+    mutliindex_column_df.columns = pd.MultiIndex.from_arrays([[1, 1], [1, 2]])
+    mutliindex_column_df = mutliindex_column_df.set_geometry((1, 1))
 
     # Test with continuous values
     ax = df.plot(column="values")
@@ -2256,6 +2292,15 @@ def test_column_values():
     ax = df.plot(column=df["values"].values)
     colors_array = ax.collections[0].get_facecolors()
     np.testing.assert_array_equal(colors, colors_array)
+    ax = df.plot(column=[0, 1])
+    colors_list = ax.collections[0].get_facecolors()
+    np.testing.assert_array_equal(colors, colors_list)
+    ax = df.plot(column=pd.Series([1, 0], index=["B", "A"]))
+    colors_list = ax.collections[0].get_facecolors()
+    np.testing.assert_array_equal(colors, colors_list)
+    ax = mutliindex_column_df.plot(column=(1, 2))
+    colors_array = ax.collections[0].get_facecolors()
+    np.testing.assert_array_equal(colors, colors_array)
 
     # Test with categorical values
     ax = df.plot(column="values", categorical=True)
@@ -2264,6 +2309,12 @@ def test_column_values():
     colors_series = ax.collections[0].get_facecolors()
     np.testing.assert_array_equal(colors, colors_series)
     ax = df.plot(column=df["values"].values, categorical=True)
+    colors_array = ax.collections[0].get_facecolors()
+    np.testing.assert_array_equal(colors, colors_array)
+    ax = df.plot(column=(0, 1), categorical=True)
+    colors_tuple = ax.collections[0].get_facecolors()
+    np.testing.assert_array_equal(colors, colors_tuple)
+    ax = mutliindex_column_df.plot(column=(1, 2), categorical=True)
     colors_array = ax.collections[0].get_facecolors()
     np.testing.assert_array_equal(colors, colors_array)
 
@@ -2744,3 +2795,69 @@ class TestAxisLabels:
         ax = self.nybb.plot(ax=ax)
         assert ax.get_xlabel() == "xlabel"
         assert ax.get_ylabel() == "Northing [US survey foot]"
+
+    def test_no_labels(self):
+        ax = self.nybb.plot("forhis06", add_labels=False)
+        assert ax.get_xlabel() == ""
+        assert ax.get_ylabel() == ""
+
+        ax2 = self.nybb.geometry.plot(add_labels=False)
+        assert ax2.get_xlabel() == ""
+        assert ax2.get_ylabel() == ""
+
+
+class TestTilesPlotting:
+    def setup_method(self):
+        pytest.importorskip("contextily")
+        from geodatasets import get_path
+
+        self.nybb = read_file(get_path("nybb"))
+
+    def test_tiles_series(self):
+        ax = self.nybb.geometry.plot(tiles=True)
+        im = next(iter(ax.images))
+        assert im.get_array().shape == (1023, 1030, 4)
+
+        attr = next(iter(ax.texts)).get_text()
+        assert (
+            attr
+            == "(C) OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France"  # noqa: E501
+        )
+
+    def test_tiles_dataframe(self):
+        ax = self.nybb.plot(tiles=True)
+        im = next(iter(ax.images))
+        assert im.get_array().shape == (1023, 1030, 4)
+
+        attr = next(iter(ax.texts)).get_text()
+        assert (
+            attr
+            == "(C) OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France"  # noqa: E501
+        )
+
+    def test_dataframe_choropleth(self):
+        ax = self.nybb.plot("BoroCode", tiles=True)
+        im = next(iter(ax.images))
+        assert im.get_array().shape == (1023, 1030, 4)
+
+        attr = next(iter(ax.texts)).get_text()
+        assert (
+            attr
+            == "(C) OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France"  # noqa: E501
+        )
+
+    def test_tiles_custom_xyzservices(self):
+        ax = self.nybb.plot(tiles="CartoDBPositron")
+        im = next(iter(ax.images))
+        assert im.get_array().shape == (1023, 1030, 4)
+
+        attr = next(iter(ax.texts)).get_text()
+        assert attr == "(C) OpenStreetMap contributors (C) CARTO"
+
+    def test_tiles_custom_attribution(self):
+        ax = self.nybb.plot(tiles="CartoDBPositron", attr="Custom attribution")
+        im = next(iter(ax.images))
+        assert im.get_array().shape == (1023, 1030, 4)
+
+        attr = next(iter(ax.texts)).get_text()
+        assert attr == "Custom attribution"
